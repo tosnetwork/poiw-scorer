@@ -75,11 +75,16 @@ Implemented (methodology v0 draft, end to end, unit-tested per crate):
 - signed commitment envelopes (`poiw-commit-v0` digest, ed25519) with
   file-based publication for the shadow-scoring phase.
 
+The phase-A loop is rehearsed end to end by the node repository's
+`scripts/poiw-epoch-e2e.py`: real Task Escrow settlements on a localnet
+flow through the tosctld indexer into `--tosctld` shadow scoring and out
+as a signed commitment envelope, whose canonical digest the script
+re-derives independently in Python and verifies (ed25519, including
+tamper rejection).
+
 Remaining node-side integration (owned by the `tos` repository, tracked
 in the methodology's open items):
 
-- a localnet end-to-end rehearsal (settle real Task Escrows, then
-  shadow-score them through `--tosctld` and publish signed envelopes);
 - the `poiwGetSettledWork` JSON-RPC method superseding the tosctld
   surface with per-block rows (the wire adapter here defines the
   consuming side);
