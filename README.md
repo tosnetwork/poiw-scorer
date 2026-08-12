@@ -33,7 +33,11 @@ implementations, including this one, are replaceable.
 
 ```bash
 cargo test --workspace
+# Score a bundled fixture epoch:
 cargo run -p poiw-cli -- fixtures/example-epoch.json 1
+# Shadow-score a live localnet through tosctld's phase-A data plane:
+cargo run -p poiw-cli -- --tosctld http://127.0.0.1:8080 26055 \
+    --epoch-seconds 65536 --commit-out ./commitments --sign-seed-hex <64-hex>
 ```
 
 ## Development gates
@@ -63,14 +67,22 @@ Implemented (methodology v0 draft, end to end, unit-tested per crate):
 - the reorg-safe block walker (`rpc::RpcChainSource`) over the
   `rpc::ChainRpc` boundary, with the JSON-RPC adapter and HTTP
   transport;
+- the phase-A shadow-scoring source (`tosctld::TosctldSource`)
+  consuming the `GET /poiw/settled-work` data plane served by
+  `tosctld`, with strict row parsing (a malformed row fails scoring —
+  two implementations must ingest identical unit sets or fail
+  identically) and pagination;
 - signed commitment envelopes (`poiw-commit-v0` digest, ed25519) with
   file-based publication for the shadow-scoring phase.
 
 Remaining node-side integration (owned by the `tos` repository, tracked
 in the methodology's open items):
 
-- the `poiwGetSettledWork` JSON-RPC method serving settled work units
-  per block (the wire adapter here defines the consuming side);
+- a localnet end-to-end rehearsal (settle real Task Escrows, then
+  shadow-score them through `--tosctld` and publish signed envelopes);
+- the `poiwGetSettledWork` JSON-RPC method superseding the tosctld
+  surface with per-block rows (the wire adapter here defines the
+  consuming side);
 - wire-mapping verification of `getMasterchainInfo` / `lookupBlock` /
   `getBlockHeader` against a localnet before phase A sign-off;
 - the PoIW distributor contract, at which point an on-chain `Submitter`

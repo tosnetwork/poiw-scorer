@@ -1,20 +1,23 @@
 //! `poiw-scorer <fixture.json> <epoch> [options]`
+//! `poiw-scorer --tosctld <base-url> <epoch> [options]`
 //!
-//! Runs the complete scoring pipeline over a JSON fixture and prints the
-//! epoch result as JSON: per-identity scores and payouts in both buckets
-//! (organic and challenge), the organic settled value, the demand-coupled
-//! pool, the challenge budget, and the committed score root. With
-//! `--commit-out` and `--sign-seed-hex`, publishes the signed commitment
-//! envelope (shadow-scoring form) via the file submitter.
+//! Runs the complete scoring pipeline over a JSON fixture or a live
+//! `tosctld` `/poiw/settled-work` endpoint (phase-A shadow scoring) and
+//! prints the epoch result as JSON: per-identity scores and payouts in
+//! both buckets (organic and challenge), the organic settled value, the
+//! demand-coupled pool, the challenge budget, and the committed score
+//! root. With `--commit-out` and `--sign-seed-hex`, publishes the
+//! signed commitment envelope (shadow-scoring form) via the file
+//! submitter.
 //!
 //! Options:
 //!   --schedule-cap <nanotos>   epoch ceiling (default ~1.17M TOS)
 //!   --k-percent <percent>      demand multiplier (default 300)
+//!   --epoch-seconds <secs>     epoch length for tosctld bucketing
+//!                              (default 65536)
+//!   --bearer <token>           bearer token for the tosctld API
 //!   --commit-out <directory>   write a signed commitment JSON here
 //!   --sign-seed-hex <64 hex>   ed25519 seed for the commitment signature
-//!
-//! The fixture source stands in for the RPC-backed chain source;
-//! everything downstream of ingestion is the real pipeline.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -32,13 +35,15 @@ const METHODOLOGY_VERSION: &str = "v0";
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(
-        "usage: poiw-scorer <fixture.json> <epoch> [--schedule-cap N] [--k-percent N] [--commit-out DIR] [--sign-seed-hex HEX]"
+        "usage: poiw-scorer (<fixture.json> | --tosctld URL) <epoch> [--schedule-cap N] [--k-percent N] [--epoch-seconds N] [--bearer TOKEN] [--commit-out DIR] [--sign-seed-hex HEX]"
     )]
     Usage,
     #[error("cannot read fixture: {0}")]
     Io(#[from] std::io::Error),
     #[error("fixture error: {0}")]
     Fixture(#[from] poiw_indexer::FixtureError),
+    #[error("tosctld error: {0}")]
+    Tosctld(#[from] poiw_indexer::tosctld::TosctldError<poiw_indexer::tosctld::UreqError>),
     #[error("scoring error: {0}")]
     Score(#[from] poiw_types::PoiwError),
     #[error("commitment error: {0}")]
@@ -75,31 +80,44 @@ struct Output {
     challenge: Vec<PayoutLine>,
 }
 
+enum Source {
+    Fixture(String),
+    Tosctld(String),
+}
+
 struct Args {
-    fixture: String,
+    source: Source,
     epoch: u64,
     schedule_cap: u128,
     k_percent: u32,
+    epoch_seconds: u64,
+    bearer: Option<String>,
     commit_out: Option<String>,
     sign_seed_hex: Option<String>,
 }
 
 fn parse_args(raw: &[String]) -> Result<Args, CliError> {
-    let (fixture, epoch_text) = match (raw.first(), raw.get(1)) {
-        (Some(fixture), Some(epoch)) if !fixture.starts_with("--") => (fixture, epoch),
+    let (source, epoch_text, mut index) = match (raw.first(), raw.get(1), raw.get(2)) {
+        (Some(flag), Some(url), Some(epoch)) if flag == "--tosctld" => {
+            (Source::Tosctld(url.clone()), epoch, 3)
+        }
+        (Some(fixture), Some(epoch), _) if !fixture.starts_with("--") => {
+            (Source::Fixture(fixture.clone()), epoch, 2)
+        }
         _ => return Err(CliError::Usage),
     };
     let mut args = Args {
-        fixture: fixture.clone(),
+        source,
         epoch: epoch_text
             .parse()
             .map_err(|_| CliError::BadValue(epoch_text.clone()))?,
         schedule_cap: 1_170_000_000_000_000, // ~1.17M TOS: draft per-epoch ceiling
         k_percent: 300,                      // bootstrap-phase k = 3.0
+        epoch_seconds: 65_536,
+        bearer: None,
         commit_out: None,
         sign_seed_hex: None,
     };
-    let mut index = 2;
     while let Some(flag) = raw.get(index) {
         let value = raw
             .get(index.checked_add(1).ok_or(CliError::Usage)?)
@@ -115,6 +133,15 @@ fn parse_args(raw: &[String]) -> Result<Args, CliError> {
                     .parse()
                     .map_err(|_| CliError::BadValue(value.clone()))?;
             }
+            "--epoch-seconds" => {
+                args.epoch_seconds = value
+                    .parse()
+                    .map_err(|_| CliError::BadValue(value.clone()))?;
+                if args.epoch_seconds == 0 {
+                    return Err(CliError::BadValue(value.clone()));
+                }
+            }
+            "--bearer" => args.bearer = Some(value.clone()),
             "--commit-out" => args.commit_out = Some(value.clone()),
             "--sign-seed-hex" => args.sign_seed_hex = Some(value.clone()),
             _ => return Err(CliError::Usage),
@@ -143,10 +170,29 @@ fn run() -> Result<(), CliError> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&raw)?;
 
-    let json = std::fs::read_to_string(&args.fixture)?;
-    let source = FixtureSource::from_json(&json)?;
-    let domains = source.domain_map();
-    let data = source.epoch_data(EpochId(args.epoch))?;
+    // Domains come from the fixture when present; the tosctld data
+    // plane carries no domain registry yet, so identities there form
+    // singleton domains.
+    let (data, domains) = match &args.source {
+        Source::Fixture(path) => {
+            let json = std::fs::read_to_string(path)?;
+            let source = FixtureSource::from_json(&json)?;
+            let domains = source.domain_map();
+            (source.epoch_data(EpochId(args.epoch))?, domains)
+        }
+        Source::Tosctld(base_url) => {
+            let getter = poiw_indexer::tosctld::UreqGetter::new(args.bearer.clone());
+            let source = poiw_indexer::tosctld::TosctldSource::new(
+                getter,
+                base_url.trim_end_matches('/'),
+                args.epoch_seconds,
+            );
+            (
+                source.epoch_data(EpochId(args.epoch))?,
+                poiw_types::DomainMap::default(),
+            )
+        }
+    };
 
     let scores = score_epoch(
         &data.units,

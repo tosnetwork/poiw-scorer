@@ -9,9 +9,13 @@
 //! - [`rpc::RpcChainSource`] — walks finalized blocks over a
 //!   [`rpc::ChainRpc`] with reorg-safe checkpoints, following the
 //!   block-walking pattern of the node's contract indexer, with a
-//!   JSON-RPC adapter in [`rpc::JsonRpcChainRpc`].
+//!   JSON-RPC adapter in [`rpc::JsonRpcChainRpc`];
+//! - [`tosctld::TosctldSource`] — consumes the phase-A
+//!   `GET /poiw/settled-work` data plane served by `tosctld`, applying
+//!   the published interim mapping.
 
 pub mod rpc;
+pub mod tosctld;
 
 use std::collections::BTreeMap;
 
