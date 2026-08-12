@@ -1,12 +1,12 @@
 [package]
-name = "poiw-indexer"
+name = "aipow-indexer"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
-description = "Chain-ingestion boundary for the PoIW scorer: the ChainSource trait, checkpoints, and the fixture source"
+description = "Chain-ingestion boundary for the AIPoW scorer: the ChainSource trait, checkpoints, and the fixture source"
 
 [dependencies]
-poiw-types = { workspace = true }
+aipow-types = { workspace = true }
 base64 = "0.22"
 serde = { workspace = true }
 serde_json = { workspace = true }

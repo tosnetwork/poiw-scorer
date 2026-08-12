@@ -1,0 +1,14 @@
+[package]
+name = "aipow-score"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Deterministic AIPoW score computation: evidence multipliers, diversity, reliability, epoch pool, maturation"
+
+[dependencies]
+aipow-types = { workspace = true }
+aipow-classifier = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

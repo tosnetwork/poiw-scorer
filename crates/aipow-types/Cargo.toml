@@ -1,9 +1,9 @@
 [package]
-name = "poiw-types"
+name = "aipow-types"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
-description = "Core domain types shared by every PoIW scorer component"
+description = "Core domain types shared by every AIPoW scorer component"
 
 [dependencies]
 serde = { workspace = true }

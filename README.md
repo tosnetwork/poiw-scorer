@@ -1,9 +1,9 @@
-# poiw-scorer
+# aipow-scorer
 
-Reference implementation (#1) of the **Proof of Intelligent Work (PoIW)**
+Reference implementation (#1) of the **Artificial Intelligence Proof of Work (AIPoW)**
 scorer for TOS Network.
 
-PoIW distributes the community-agent allocation (~4.5B of the 5B TOS
+AIPoW distributes the community-agent allocation (~4.5B of the 5B TOS
 supply policy) as proof-of-useful-work issuance: protocol-automatic,
 issuer-less rewards for completed, evidence-graded, on-chain-settled
 intelligent work. The scorer computes per-epoch scores from public chain
@@ -22,21 +22,21 @@ implementations, including this one, are replaceable.
 
 | Crate | Responsibility |
 |---|---|
-| `poiw-types` | Shared domain types; integer-only units |
-| `poiw-indexer` | Chain-ingestion boundary: `ChainSource` trait, checkpoints, JSON fixture source |
-| `poiw-classifier` | Organic/wash classification and counterparty-concentration discount (consensus-critical discipline) |
-| `poiw-score` | Work-unit and identity scoring, reliability factor, demand-coupled epoch pool, capped payout allocation, maturation schedule |
-| `poiw-commitment` | Deterministic epoch score-root construction |
-| `poiw-cli` | `poiw-scorer` binary: run the pipeline over a fixture, print scores, pool, payouts, and root |
+| `aipow-types` | Shared domain types; integer-only units |
+| `aipow-indexer` | Chain-ingestion boundary: `ChainSource` trait, checkpoints, JSON fixture source |
+| `aipow-classifier` | Organic/wash classification and counterparty-concentration discount (consensus-critical discipline) |
+| `aipow-score` | Work-unit and identity scoring, reliability factor, demand-coupled epoch pool, capped payout allocation, maturation schedule |
+| `aipow-commitment` | Deterministic epoch score-root construction |
+| `aipow-cli` | `aipow-scorer` binary: run the pipeline over a fixture, print scores, pool, payouts, and root |
 
 ## Quick start
 
 ```bash
 cargo test --workspace
 # Score a bundled fixture epoch:
-cargo run -p poiw-cli -- fixtures/example-epoch.json 1
+cargo run -p aipow-cli -- fixtures/example-epoch.json 1
 # Shadow-score a live localnet through tosctld's phase-A data plane:
-cargo run -p poiw-cli -- --tosctld http://127.0.0.1:8080 26055 \
+cargo run -p aipow-cli -- --tosctld http://127.0.0.1:8080 26055 \
     --epoch-seconds 65536 --commit-out ./commitments --sign-seed-hex <64-hex>
 ```
 
@@ -68,15 +68,15 @@ Implemented (methodology v0 draft, end to end, unit-tested per crate):
   `rpc::ChainRpc` boundary, with the JSON-RPC adapter and HTTP
   transport;
 - the phase-A shadow-scoring source (`tosctld::TosctldSource`)
-  consuming the `GET /poiw/settled-work` data plane served by
+  consuming the `GET /aipow/settled-work` data plane served by
   `tosctld`, with strict row parsing (a malformed row fails scoring —
   two implementations must ingest identical unit sets or fail
   identically) and pagination;
-- signed commitment envelopes (`poiw-commit-v0` digest, ed25519) with
+- signed commitment envelopes (`aipow-commit-v0` digest, ed25519) with
   file-based publication for the shadow-scoring phase.
 
 The phase-A loop is rehearsed end to end by the node repository's
-`scripts/poiw-epoch-e2e.py`: real Task Escrow settlements on a localnet
+`scripts/aipow-epoch-e2e.py`: real Task Escrow settlements on a localnet
 flow through the tosctld indexer into `--tosctld` shadow scoring and out
 as a signed commitment envelope, whose canonical digest the script
 re-derives independently in Python and verifies (ed25519, including
@@ -85,12 +85,12 @@ tamper rejection).
 Remaining node-side integration (owned by the `tos` repository, tracked
 in the methodology's open items):
 
-- the `poiwGetSettledWork` JSON-RPC method superseding the tosctld
+- the `aipowGetSettledWork` JSON-RPC method superseding the tosctld
   surface with per-block rows (the wire adapter here defines the
   consuming side);
 - wire-mapping verification of `getMasterchainInfo` / `lookupBlock` /
   `getBlockHeader` against a localnet before phase A sign-off;
-- the PoIW distributor contract, at which point an on-chain `Submitter`
+- the AIPoW distributor contract, at which point an on-chain `Submitter`
   joins the file submitter.
 
 ## License

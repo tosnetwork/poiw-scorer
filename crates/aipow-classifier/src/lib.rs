@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use poiw_types::{Bps, DomainKey, DomainMap, PoiwError, SettledWorkUnit, BPS_DENOMINATOR};
+use aipow_types::{AipowError, Bps, DomainKey, DomainMap, SettledWorkUnit, BPS_DENOMINATOR};
 
 /// Classifier parameters (methodology v0 draft values).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,14 +38,14 @@ impl Default for ClassifierParams {
 }
 
 impl ClassifierParams {
-    fn validate(&self) -> Result<(), PoiwError> {
+    fn validate(&self) -> Result<(), AipowError> {
         if self.top_payer_full_bps >= self.top_payer_zero_bps {
-            return Err(PoiwError::InvalidParameter(
+            return Err(AipowError::InvalidParameter(
                 "top_payer_full_bps must be below top_payer_zero_bps",
             ));
         }
         if self.top_payer_zero_bps > 10_000 {
-            return Err(PoiwError::InvalidParameter(
+            return Err(AipowError::InvalidParameter(
                 "top_payer_zero_bps must not exceed 10_000",
             ));
         }
@@ -75,22 +75,22 @@ pub fn is_organic(unit: &SettledWorkUnit, domains: &DomainMap) -> bool {
 pub fn counterparty_discount_bps<K: Ord>(
     per_payer_settled: &BTreeMap<K, u128>,
     params: &ClassifierParams,
-) -> Result<Bps, PoiwError> {
+) -> Result<Bps, AipowError> {
     params.validate()?;
     let total: u128 = per_payer_settled
         .values()
         .try_fold(0u128, |acc, v| acc.checked_add(*v))
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     if total == 0 {
         return Ok(10_000);
     }
     let top = per_payer_settled.values().max().copied().unwrap_or(0);
     let share_bps_wide = top
         .checked_mul(BPS_DENOMINATOR)
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(total)
-        .ok_or(PoiwError::Overflow)?;
-    let share_bps = Bps::try_from(share_bps_wide).map_err(|_| PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
+    let share_bps = Bps::try_from(share_bps_wide).map_err(|_| AipowError::Overflow)?;
 
     if share_bps <= params.top_payer_full_bps {
         return Ok(10_000);
@@ -102,20 +102,20 @@ pub fn counterparty_discount_bps<K: Ord>(
         params
             .top_payer_zero_bps
             .checked_sub(params.top_payer_full_bps)
-            .ok_or(PoiwError::Overflow)?,
+            .ok_or(AipowError::Overflow)?,
     );
     let above = u128::from(
         share_bps
             .checked_sub(params.top_payer_full_bps)
-            .ok_or(PoiwError::Overflow)?,
+            .ok_or(AipowError::Overflow)?,
     );
-    let remaining = span.checked_sub(above).ok_or(PoiwError::Overflow)?;
+    let remaining = span.checked_sub(above).ok_or(AipowError::Overflow)?;
     let scaled = remaining
         .checked_mul(BPS_DENOMINATOR)
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(span)
-        .ok_or(PoiwError::Overflow)?;
-    Bps::try_from(scaled).map_err(|_| PoiwError::Overflow)
+        .ok_or(AipowError::Overflow)?;
+    Bps::try_from(scaled).map_err(|_| AipowError::Overflow)
 }
 
 /// Epoch-level organic settled value: for each earner, sum the settled
@@ -127,16 +127,16 @@ pub fn organic_settled_value(
     units: &[SettledWorkUnit],
     domains: &DomainMap,
     params: &ClassifierParams,
-) -> Result<u128, PoiwError> {
+) -> Result<u128, AipowError> {
     params.validate()?;
-    let mut per_earner: BTreeMap<poiw_types::IdentityId, BTreeMap<DomainKey, u128>> =
+    let mut per_earner: BTreeMap<aipow_types::IdentityId, BTreeMap<DomainKey, u128>> =
         BTreeMap::new();
     for unit in units.iter().filter(|u| is_organic(u, domains)) {
         let payers = per_earner.entry(unit.identity).or_default();
         let entry = payers.entry(domains.domain_of(unit.payer)).or_insert(0);
         *entry = entry
             .checked_add(u128::from(unit.settled_price))
-            .ok_or(PoiwError::Overflow)?;
+            .ok_or(AipowError::Overflow)?;
     }
 
     let mut total = 0u128;
@@ -144,14 +144,14 @@ pub fn organic_settled_value(
         let earner_total: u128 = payers
             .values()
             .try_fold(0u128, |acc, v| acc.checked_add(*v))
-            .ok_or(PoiwError::Overflow)?;
+            .ok_or(AipowError::Overflow)?;
         let discount = counterparty_discount_bps(payers, params)?;
         let discounted = earner_total
             .checked_mul(u128::from(discount))
-            .ok_or(PoiwError::Overflow)?
+            .ok_or(AipowError::Overflow)?
             .checked_div(BPS_DENOMINATOR)
-            .ok_or(PoiwError::Overflow)?;
-        total = total.checked_add(discounted).ok_or(PoiwError::Overflow)?;
+            .ok_or(AipowError::Overflow)?;
+        total = total.checked_add(discounted).ok_or(AipowError::Overflow)?;
     }
     Ok(total)
 }
@@ -160,7 +160,7 @@ pub fn organic_settled_value(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-    use poiw_types::{CapabilityClass, DomainId, EvidenceLevel, IdentityId};
+    use aipow_types::{CapabilityClass, DomainId, EvidenceLevel, IdentityId};
 
     use super::*;
 
@@ -270,7 +270,7 @@ mod tests {
         };
         assert!(matches!(
             organic_settled_value(&[], &DomainMap::default(), &params),
-            Err(PoiwError::InvalidParameter(_))
+            Err(AipowError::InvalidParameter(_))
         ));
     }
 }

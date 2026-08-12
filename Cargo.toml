@@ -1,25 +1,25 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/poiw-types",
-    "crates/poiw-classifier",
-    "crates/poiw-score",
-    "crates/poiw-commitment",
-    "crates/poiw-indexer",
-    "crates/poiw-cli",
+    "crates/aipow-types",
+    "crates/aipow-classifier",
+    "crates/aipow-score",
+    "crates/aipow-commitment",
+    "crates/aipow-indexer",
+    "crates/aipow-cli",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-repository = "https://github.com/tosnetwork/poiw-scorer"
+repository = "https://github.com/tosnetwork/aipow-scorer"
 
 [workspace.dependencies]
-poiw-types = { path = "crates/poiw-types" }
-poiw-classifier = { path = "crates/poiw-classifier" }
-poiw-score = { path = "crates/poiw-score" }
-poiw-commitment = { path = "crates/poiw-commitment" }
-poiw-indexer = { path = "crates/poiw-indexer" }
+aipow-types = { path = "crates/aipow-types" }
+aipow-classifier = { path = "crates/aipow-classifier" }
+aipow-score = { path = "crates/aipow-score" }
+aipow-commitment = { path = "crates/aipow-commitment" }
+aipow-indexer = { path = "crates/aipow-indexer" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

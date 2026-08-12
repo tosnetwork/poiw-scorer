@@ -1,6 +1,6 @@
-# PoIW Scoring Methodology — v0 draft
+# AIPoW Scoring Methodology — v0 draft
 
-This document is the **normative artifact** for Proof of Intelligent Work
+This document is the **normative artifact** for Artificial Intelligence Proof of Work
 scoring. Conforming implementations — including the two independent
 scorers required before mainnet activation — must reproduce identical
 epoch score roots byte for byte from the same finalized chain data and
@@ -10,7 +10,7 @@ the code has a bug.
 
 Status: v0 draft. Every constant below is a proposal pending governance
 publication, adversarial red-team review, and the launch gates in the
-PoIW distribution design.
+AIPoW distribution design.
 
 ## 1. Units and arithmetic
 
@@ -30,9 +30,9 @@ evidence level, challenge-task flag, related-payer flag.
 
 ### 2.1 Receipt attributions and rate cards
 
-Receipts carrying a PoIW work attribution (the protocol's
-`PoiwWorkAttribution`; normative vocabulary: atos-spec's
-`POIW_WORK_ATTRIBUTION.md`) are valued under a protocol-published rate
+Receipts carrying a AIPoW work attribution (the protocol's
+`AipowWorkAttribution`; normative vocabulary: atos-spec's
+`AIPOW_WORK_ATTRIBUTION.md`) are valued under a protocol-published rate
 card before scoring:
 
 ```text
@@ -171,12 +171,12 @@ unmatured remainder is forfeited only on registry-bond fraud slashing.
 - Leaf: `sha256(0x00 ‖ identity(32) ‖ score as 16-byte big-endian)`.
 - Node: `sha256(0x01 ‖ left ‖ right)`; an odd node is promoted
   unchanged.
-- Empty epoch: `sha256(0x02 ‖ "poiw-empty-v0")`.
+- Empty epoch: `sha256(0x02 ‖ "aipow-empty-v0")`.
 
 ## 10.1 Commitment envelope
 
 The signing payload for an epoch commitment is
-`sha256("poiw-commit-v0" ‖ epoch_be(8) ‖ version_len_be(4) ‖
+`sha256("aipow-commit-v0" ‖ epoch_be(8) ‖ version_len_be(4) ‖
 methodology_version_utf8 ‖ root(32) ‖ entry_count_be(8) ‖
 total_score_be(16) ‖ organic_settled_value_be(16))`, signed with
 ed25519. The same digest is used for shadow-scoring file publication and
@@ -199,8 +199,8 @@ scoreable once a finalized block's time passes the epoch end.
   the reference pipeline; target: published multi-epoch window).
 - Governance publication of the priced rate card per class (the
   vocabulary and units are normative in atos-spec's
-  `POIW_WORK_ATTRIBUTION.md`; the prices themselves remain draft).
+  `AIPOW_WORK_ATTRIBUTION.md`; the prices themselves remain draft).
 - Reliability-input sourcing from chain data (part of the pending
   node-side method surface).
-- The node-side `poiwGetSettledWork` JSON-RPC method and the distributor
+- The node-side `aipowGetSettledWork` JSON-RPC method and the distributor
   contract submission path (owned by the `tos` repository).

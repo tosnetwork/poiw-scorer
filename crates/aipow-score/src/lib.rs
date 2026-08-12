@@ -1,7 +1,7 @@
-//! Deterministic PoIW score computation.
+//! Deterministic AIPoW score computation.
 //!
 //! Everything here is pure integer arithmetic over the settled-work
-//! records produced by the indexer and classified by `poiw-classifier`.
+//! records produced by the indexer and classified by `aipow-classifier`.
 //! The functions implement the published methodology; the methodology
 //! document, not this code, is the normative artifact.
 //!
@@ -15,9 +15,9 @@
 
 use std::collections::BTreeMap;
 
-use poiw_classifier::{is_score_eligible, ClassifierParams};
-use poiw_types::{
-    Bps, DomainKey, DomainMap, IdentityId, PoiwError, ReliabilityInputs, SettledWorkUnit,
+use aipow_classifier::{is_score_eligible, ClassifierParams};
+use aipow_types::{
+    AipowError, Bps, DomainKey, DomainMap, IdentityId, ReliabilityInputs, SettledWorkUnit,
     BPS_DENOMINATOR,
 };
 
@@ -38,9 +38,9 @@ impl Default for ScoreParams {
 }
 
 impl ScoreParams {
-    fn validate(&self) -> Result<(), PoiwError> {
+    fn validate(&self) -> Result<(), AipowError> {
         if self.payout_cap_share_bps == 0 || self.payout_cap_share_bps > 10_000 {
-            return Err(PoiwError::InvalidParameter(
+            return Err(AipowError::InvalidParameter(
                 "payout_cap_share_bps must be within 1..=10_000",
             ));
         }
@@ -79,9 +79,9 @@ impl Default for ChallengeBudgetParams {
 }
 
 impl ChallengeBudgetParams {
-    fn validate(&self) -> Result<(), PoiwError> {
+    fn validate(&self) -> Result<(), AipowError> {
         if self.max_pool_share_bps > 10_000 {
-            return Err(PoiwError::InvalidParameter(
+            return Err(AipowError::InvalidParameter(
                 "max_pool_share_bps must not exceed 10_000",
             ));
         }
@@ -90,23 +90,23 @@ impl ChallengeBudgetParams {
 }
 
 /// Multiply an amount by a basis-point factor, flooring.
-pub fn apply_bps(value: u128, bps: Bps) -> Result<u128, PoiwError> {
+pub fn apply_bps(value: u128, bps: Bps) -> Result<u128, AipowError> {
     value
         .checked_mul(u128::from(bps))
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(BPS_DENOMINATOR)
-        .ok_or(PoiwError::Overflow)
+        .ok_or(AipowError::Overflow)
 }
 
 /// Score of one settled work unit: the rate-card valuation capped by the
 /// actually settled price, times the evidence multiplier. `Declared`
 /// evidence yields exactly zero.
-pub fn work_unit_score(unit: &SettledWorkUnit) -> Result<u128, PoiwError> {
+pub fn work_unit_score(unit: &SettledWorkUnit) -> Result<u128, AipowError> {
     let base = u128::from(unit.rate_card_value.min(unit.settled_price));
     base.checked_mul(u128::from(unit.evidence.multiplier_percent()))
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(100)
-        .ok_or(PoiwError::Overflow)
+        .ok_or(AipowError::Overflow)
 }
 
 /// Reliability factor in basis points, clamped to [5_000, 11_000].
@@ -115,7 +115,7 @@ pub fn work_unit_score(unit: &SettledWorkUnit) -> Result<u128, PoiwError> {
 /// seniority alone is never rewarded. A window with zero penalties earns
 /// the 11_000 ceiling; penalties subtract from the 10_000 baseline down
 /// to the 5_000 floor.
-pub fn reliability_factor_bps(history: Option<ReliabilityInputs>) -> Result<Bps, PoiwError> {
+pub fn reliability_factor_bps(history: Option<ReliabilityInputs>) -> Result<Bps, AipowError> {
     let Some(inputs) = history else {
         return Ok(10_000);
     };
@@ -125,19 +125,19 @@ pub fn reliability_factor_bps(history: Option<ReliabilityInputs>) -> Result<Bps,
         inputs.sla_breach_bps,
     ] {
         if value > 10_000 {
-            return Err(PoiwError::InvalidParameter(
+            return Err(AipowError::InvalidParameter(
                 "reliability inputs must be within 10_000 bps",
             ));
         }
     }
     let failure = 10_000u32
         .checked_sub(inputs.settlement_success_bps)
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     let penalty = failure
         .checked_add(inputs.dispute_loss_bps)
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_add(inputs.sla_breach_bps)
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     if penalty == 0 {
         return Ok(11_000);
     }
@@ -150,12 +150,12 @@ pub fn epoch_pool(
     schedule_cap: u128,
     k_percent: u32,
     organic_settled_value: u128,
-) -> Result<u128, PoiwError> {
+) -> Result<u128, AipowError> {
     let coupled = organic_settled_value
         .checked_mul(u128::from(k_percent))
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(100)
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     Ok(schedule_cap.min(coupled))
 }
 
@@ -168,14 +168,14 @@ pub fn challenge_budget(
     pool: u128,
     organic_settled_value: u128,
     params: &ChallengeBudgetParams,
-) -> Result<u128, PoiwError> {
+) -> Result<u128, AipowError> {
     params.validate()?;
     let share_bound = apply_bps(pool, params.max_pool_share_bps)?;
     let organic_bound = organic_settled_value
         .checked_mul(u128::from(params.organic_multiple_percent))
-        .ok_or(PoiwError::Overflow)?
+        .ok_or(AipowError::Overflow)?
         .checked_div(100)
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     Ok(share_bound.min(organic_bound).max(params.cold_start_floor))
 }
 
@@ -194,29 +194,29 @@ pub fn maturation_schedule(
     total: u128,
     immediate_bps: Bps,
     stream_epochs: u32,
-) -> Result<MaturationSchedule, PoiwError> {
+) -> Result<MaturationSchedule, AipowError> {
     if immediate_bps > 10_000 {
-        return Err(PoiwError::InvalidParameter(
+        return Err(AipowError::InvalidParameter(
             "immediate_bps must not exceed 10_000",
         ));
     }
     if stream_epochs == 0 {
-        return Err(PoiwError::InvalidParameter(
+        return Err(AipowError::InvalidParameter(
             "stream_epochs must be at least 1",
         ));
     }
     let immediate = apply_bps(total, immediate_bps)?;
-    let streamed = total.checked_sub(immediate).ok_or(PoiwError::Overflow)?;
+    let streamed = total.checked_sub(immediate).ok_or(AipowError::Overflow)?;
     let per = streamed
         .checked_div(u128::from(stream_epochs))
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     let remainder = streamed
         .checked_rem(u128::from(stream_epochs))
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     let mut stream = Vec::with_capacity(stream_epochs as usize);
     for index in 0..u128::from(stream_epochs) {
         let extra = if index < remainder { 1 } else { 0 };
-        stream.push(per.checked_add(extra).ok_or(PoiwError::Overflow)?);
+        stream.push(per.checked_add(extra).ok_or(AipowError::Overflow)?);
     }
     Ok(MaturationSchedule { immediate, stream })
 }
@@ -252,7 +252,7 @@ pub fn score_epoch(
     reliability: &BTreeMap<IdentityId, ReliabilityInputs>,
     domains: &DomainMap,
     classifier_params: &ClassifierParams,
-) -> Result<EpochScores, PoiwError> {
+) -> Result<EpochScores, AipowError> {
     let mut organic_raw: BTreeMap<IdentityId, u128> = BTreeMap::new();
     let mut challenge_raw: BTreeMap<IdentityId, u128> = BTreeMap::new();
     for unit in units.iter().filter(|u| is_score_eligible(u, domains)) {
@@ -263,10 +263,10 @@ pub fn score_epoch(
             &mut organic_raw
         };
         let entry = bucket.entry(unit.identity).or_insert(0);
-        *entry = entry.checked_add(unit_score).ok_or(PoiwError::Overflow)?;
+        *entry = entry.checked_add(unit_score).ok_or(AipowError::Overflow)?;
     }
 
-    let adjust = |raw: &BTreeMap<IdentityId, u128>| -> Result<Vec<IdentityScore>, PoiwError> {
+    let adjust = |raw: &BTreeMap<IdentityId, u128>| -> Result<Vec<IdentityScore>, AipowError> {
         let mut scores = Vec::with_capacity(raw.len());
         for (identity, raw_score) in raw {
             let factor = reliability_factor_bps(reliability.get(identity).copied())?;
@@ -281,7 +281,7 @@ pub fn score_epoch(
 
     let organic = adjust(&organic_raw)?;
     let challenge = adjust(&challenge_raw)?;
-    let organic_value = poiw_classifier::organic_settled_value(units, domains, classifier_params)?;
+    let organic_value = aipow_classifier::organic_settled_value(units, domains, classifier_params)?;
     Ok(EpochScores {
         organic,
         challenge,
@@ -307,11 +307,11 @@ pub fn allocate_bucket(
     domains: &DomainMap,
     cap_share_bps: Bps,
     per_identity_cap: Option<u128>,
-) -> Result<Vec<IdentityPayout>, PoiwError> {
+) -> Result<Vec<IdentityPayout>, AipowError> {
     let total: u128 = scores
         .iter()
         .try_fold(0u128, |acc, s| acc.checked_add(s.score))
-        .ok_or(PoiwError::Overflow)?;
+        .ok_or(AipowError::Overflow)?;
     if total == 0 || budget == 0 {
         return Ok(scores
             .iter()
@@ -326,9 +326,9 @@ pub fn allocate_bucket(
     for entry in scores {
         let pro_rata = budget
             .checked_mul(entry.score)
-            .ok_or(PoiwError::Overflow)?
+            .ok_or(AipowError::Overflow)?
             .checked_div(total)
-            .ok_or(PoiwError::Overflow)?;
+            .ok_or(AipowError::Overflow)?;
         let capped = match per_identity_cap {
             Some(cap) => pro_rata.min(cap),
             None => pro_rata,
@@ -346,7 +346,7 @@ pub fn allocate_bucket(
         let entry = per_domain.entry(key).or_insert(0);
         *entry = entry
             .checked_add(payout.amount)
-            .ok_or(PoiwError::Overflow)?;
+            .ok_or(AipowError::Overflow)?;
     }
     for payout in &mut payouts {
         let key = domains.domain_of(payout.identity);
@@ -355,9 +355,9 @@ pub fn allocate_bucket(
             payout.amount = payout
                 .amount
                 .checked_mul(cap_amount)
-                .ok_or(PoiwError::Overflow)?
+                .ok_or(AipowError::Overflow)?
                 .checked_div(domain_total)
-                .ok_or(PoiwError::Overflow)?;
+                .ok_or(AipowError::Overflow)?;
         }
     }
     Ok(payouts)
@@ -392,7 +392,7 @@ pub fn allocate_epoch(
     domains: &DomainMap,
     score_params: &ScoreParams,
     challenge_params: &ChallengeBudgetParams,
-) -> Result<EpochAllocation, PoiwError> {
+) -> Result<EpochAllocation, AipowError> {
     score_params.validate()?;
     let challenge = challenge_budget(pool, scores.organic_settled_value, challenge_params)?;
     let carve = challenge.min(apply_bps(pool, challenge_params.max_pool_share_bps)?);
@@ -423,7 +423,7 @@ pub fn allocate_epoch(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-    use poiw_types::{CapabilityClass, DomainId, EvidenceLevel};
+    use aipow_types::{CapabilityClass, DomainId, EvidenceLevel};
 
     use super::*;
 

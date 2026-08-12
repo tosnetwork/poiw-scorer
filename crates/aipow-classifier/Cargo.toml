@@ -1,12 +1,12 @@
 [package]
-name = "poiw-classifier"
+name = "aipow-classifier"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
-description = "Organic/wash classification for PoIW emission inputs (consensus-critical discipline)"
+description = "Organic/wash classification for AIPoW emission inputs (consensus-critical discipline)"
 
 [dependencies]
-poiw-types = { workspace = true }
+aipow-types = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

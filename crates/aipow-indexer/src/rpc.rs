@@ -12,7 +12,7 @@
 //! - `getMasterchainInfo`, `lookupBlock`, `getBlockHeader` follow the
 //!   node's existing public method surface and must be verified against
 //!   a localnet before phase A sign-off;
-//! - `poiwGetSettledWork` is the **pending node-side extension** that
+//! - `aipowGetSettledWork` is the **pending node-side extension** that
 //!   returns settled work units per block. Per the node's JSON-RPC
 //!   policy, new capabilities are added as explicit new methods; this
 //!   client defines the consuming side of that contract.
@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use poiw_types::{EpochId, SettledWorkUnit};
+use aipow_types::{EpochId, SettledWorkUnit};
 
 use crate::{ChainSource, EpochData};
 
@@ -321,7 +321,7 @@ pub enum JsonRpcChainError<E: std::error::Error + Send + Sync + 'static> {
 /// characters.
 fn parse_hash(text: &str) -> Option<[u8; 32]> {
     if text.len() == 64 {
-        return poiw_types::hex::decode_array::<32>(text);
+        return aipow_types::hex::decode_array::<32>(text);
     }
     use base64::Engine as _;
     let bytes = base64::engine::general_purpose::STANDARD
@@ -439,7 +439,7 @@ impl<T: JsonRpcTransport> ChainRpc for JsonRpcChainRpc<T> {
         let result = self
             .transport
             .call(
-                "poiwGetSettledWork",
+                "aipowGetSettledWork",
                 serde_json::json!({
                     "workchain": self.workchain,
                     "shard": self.shard,
@@ -448,7 +448,7 @@ impl<T: JsonRpcTransport> ChainRpc for JsonRpcChainRpc<T> {
             )
             .map_err(JsonRpcChainError::Transport)?;
         let parsed: WireSettledWork = serde_json::from_value(result)
-            .map_err(|_| JsonRpcChainError::Shape("poiwGetSettledWork"))?;
+            .map_err(|_| JsonRpcChainError::Shape("aipowGetSettledWork"))?;
         Ok(parsed.units)
     }
 }
@@ -459,7 +459,7 @@ mod tests {
 
     use std::cell::RefCell;
 
-    use poiw_types::{CapabilityClass, EvidenceLevel, IdentityId};
+    use aipow_types::{CapabilityClass, EvidenceLevel, IdentityId};
 
     use super::*;
 
@@ -644,7 +644,7 @@ mod tests {
             method: &str,
             _params: serde_json::Value,
         ) -> Result<serde_json::Value, Self::Error> {
-            let hash_hex = poiw_types::hex::encode(&[7u8; 32]);
+            let hash_hex = aipow_types::hex::encode(&[7u8; 32]);
             match method {
                 "getMasterchainInfo" => Ok(serde_json::json!({
                     "last": {"seqno": 99, "root_hash": hash_hex}
@@ -653,7 +653,7 @@ mod tests {
                     "id": {"seqno": 42, "root_hash": hash_hex}
                 })),
                 "getBlockHeader" => Ok(serde_json::json!({"gen_utime": 123456})),
-                "poiwGetSettledWork" => {
+                "aipowGetSettledWork" => {
                     let mut sample = unit(1, 2);
                     sample.settled_price = 90;
                     let value = serde_json::to_value(vec![sample]).map_err(|_| NoMethod)?;
@@ -680,7 +680,7 @@ mod tests {
 
     #[test]
     fn hash_parsing_accepts_hex_and_base64_rejects_garbage() {
-        let hex64 = poiw_types::hex::encode(&[9u8; 32]);
+        let hex64 = aipow_types::hex::encode(&[9u8; 32]);
         assert_eq!(parse_hash(&hex64).unwrap(), [9u8; 32]);
         use base64::Engine as _;
         let b64 = base64::engine::general_purpose::STANDARD.encode([9u8; 32]);

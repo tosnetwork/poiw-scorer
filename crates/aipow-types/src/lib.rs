@@ -1,4 +1,4 @@
-//! Core domain types shared by every PoIW scorer component.
+//! Core domain types shared by every AIPoW scorer component.
 //!
 //! All monetary amounts are integer nanotos (1 TOS = 1,000,000,000 nanotos).
 //! All multipliers are integer basis points or integer percent. No floating
@@ -22,7 +22,7 @@ pub const BPS_DENOMINATOR: u128 = 10_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct IdentityId(pub [u8; 32]);
 
-/// A PoIW epoch number (aligned with the 65,536-second validation epoch).
+/// A AIPoW epoch number (aligned with the 65,536-second validation epoch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EpochId(pub u64);
 
@@ -162,7 +162,7 @@ pub struct SettledWorkUnit {
 }
 
 /// The v0 capability-class vocabulary: the closed class/unit registry
-/// published by the protocol (normative source: the PoIW work-attribution
+/// published by the protocol (normative source: the AIPoW work-attribution
 /// specification). A measurement that cannot be normalized under a
 /// specific class is reported under `default`, never approximated.
 pub mod vocabulary {
@@ -203,8 +203,8 @@ pub struct RateCard {
     pub prices: std::collections::BTreeMap<String, Nanotos>,
 }
 
-/// PoIW work attribution as carried inside a signed settlement receipt
-/// (the wire mirror of the protocol's `PoiwWorkAttribution` message).
+/// AIPoW work attribution as carried inside a signed settlement receipt
+/// (the wire mirror of the protocol's `AipowWorkAttribution` message).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkAttribution {
     pub capability_class: String,
@@ -333,7 +333,7 @@ pub struct ReliabilityInputs {
 
 /// Errors shared across scorer components.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum PoiwError {
+pub enum AipowError {
     #[error("integer overflow in score arithmetic")]
     Overflow,
     #[error("invalid parameter: {0}")]

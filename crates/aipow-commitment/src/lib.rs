@@ -10,7 +10,7 @@
 //! - leaf hash: `sha256(0x00 || identity(32) || score_be(16))`;
 //! - node hash: `sha256(0x01 || left(32) || right(32))`;
 //! - an odd node at any level is promoted unchanged;
-//! - the empty epoch root is `sha256(0x02 || "poiw-empty-v0")`.
+//! - the empty epoch root is `sha256(0x02 || "aipow-empty-v0")`.
 //!
 //! The [`CommitmentEnvelope`] is the canonical signing payload for a
 //! committed epoch: its byte encoding and digest are fixed here so that
@@ -24,7 +24,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use poiw_types::{hex, IdentityId};
+use aipow_types::{hex, IdentityId};
 
 /// One identity's final score, as committed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub enum CommitmentError {
 const LEAF_PREFIX: u8 = 0x00;
 const NODE_PREFIX: u8 = 0x01;
 const EMPTY_PREFIX: u8 = 0x02;
-const EMPTY_DOMAIN: &[u8] = b"poiw-empty-v0";
+const EMPTY_DOMAIN: &[u8] = b"aipow-empty-v0";
 
 fn leaf_hash(entry: &ScoreEntry) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -105,7 +105,7 @@ pub fn score_root(entries: &[ScoreEntry]) -> Result<[u8; 32], CommitmentError> {
         .ok_or(CommitmentError::DuplicateIdentity)
 }
 
-const ENVELOPE_DOMAIN: &[u8] = b"poiw-commit-v0";
+const ENVELOPE_DOMAIN: &[u8] = b"aipow-commit-v0";
 
 /// The canonical epoch-commitment payload. Field order and byte
 /// encoding are normative: every implementation signs and verifies the
@@ -204,7 +204,7 @@ impl SignedCommitment {
     }
 }
 
-/// Where signed commitments go. On-chain submission through the PoIW
+/// Where signed commitments go. On-chain submission through the AIPoW
 /// distributor contract implements this trait once that contract exists;
 /// the shadow-scoring phase publishes files.
 pub trait Submitter {
@@ -212,7 +212,7 @@ pub trait Submitter {
 }
 
 /// Publishes signed commitments as pretty-printed JSON files named
-/// `poiw-commitment-epoch-<n>.json` in a directory.
+/// `aipow-commitment-epoch-<n>.json` in a directory.
 #[derive(Debug, Clone)]
 pub struct FileSubmitter {
     pub directory: std::path::PathBuf,
@@ -221,7 +221,7 @@ pub struct FileSubmitter {
 impl Submitter for FileSubmitter {
     fn submit(&self, commitment: &SignedCommitment) -> Result<(), EnvelopeError> {
         commitment.verify()?;
-        let name = format!("poiw-commitment-epoch-{}.json", commitment.envelope.epoch);
+        let name = format!("aipow-commitment-epoch-{}.json", commitment.envelope.epoch);
         let path = self.directory.join(name);
         let json = serde_json::to_string_pretty(commitment)
             .map_err(|e| EnvelopeError::Submit(e.to_string()))?;
@@ -287,7 +287,7 @@ mod tests {
         CommitmentEnvelope {
             epoch: 42,
             methodology_version: "v0".into(),
-            score_root_hex: poiw_types::hex::encode(&root),
+            score_root_hex: aipow_types::hex::encode(&root),
             entry_count: 2,
             total_score: 30,
             organic_settled_value: 1_000,
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn file_submitter_writes_verified_commitments() {
         let dir = std::env::temp_dir().join(format!(
-            "poiw-commit-test-{}-{}",
+            "aipow-commit-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -342,7 +342,7 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&[9u8; 32]);
         let signed = sample_envelope().sign(&signing_key).unwrap();
         submitter.submit(&signed).unwrap();
-        let path = dir.join("poiw-commitment-epoch-42.json");
+        let path = dir.join("aipow-commitment-epoch-42.json");
         let loaded: SignedCommitment =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         loaded.verify().unwrap();
@@ -351,7 +351,7 @@ mod tests {
         let mut tampered = signed;
         tampered.envelope.epoch = 43;
         assert!(submitter.submit(&tampered).is_err());
-        assert!(!dir.join("poiw-commitment-epoch-43.json").exists());
+        assert!(!dir.join("aipow-commitment-epoch-43.json").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

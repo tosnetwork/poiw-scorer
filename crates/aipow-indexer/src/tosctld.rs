@@ -1,7 +1,7 @@
 //! Settled-work ingestion from a `tosctld` query API.
 //!
 //! [`TosctldSource`] consumes the interim phase-A data plane — the
-//! authenticated `GET /poiw/settled-work` endpoint served by the node
+//! authenticated `GET /aipow/settled-work` endpoint served by the node
 //! repository's `tosctld` — and maps its rows onto [`SettledWorkUnit`]s
 //! under the published interim mapping: the settled amount is both the
 //! work valuation and its price cap, the evidence string is taken as
@@ -18,10 +18,10 @@
 
 use serde::Deserialize;
 
-use poiw_types::{CapabilityClass, EvidenceLevel, IdentityId, SettledWorkUnit};
+use aipow_types::{CapabilityClass, EvidenceLevel, IdentityId, SettledWorkUnit};
 
 use crate::{ChainSource, EpochData};
-use poiw_types::EpochId;
+use aipow_types::EpochId;
 
 /// Transport boundary for the query API: fetch one URL, return parsed
 /// JSON.
@@ -102,7 +102,7 @@ struct WireEvent {
 /// Parse a `workchain:hex64` TOS address into the 32-byte identity.
 fn parse_identity(address: &str) -> Option<IdentityId> {
     let hex_part = address.rsplit(':').next()?;
-    poiw_types::hex::decode_array::<32>(hex_part).map(IdentityId)
+    aipow_types::hex::decode_array::<32>(hex_part).map(IdentityId)
 }
 
 /// Parse an evidence-level string. All six ladder levels are accepted
@@ -122,7 +122,7 @@ fn parse_evidence(text: &str) -> Option<EvidenceLevel> {
 const PAGE_LIMIT: usize = 1_000;
 const MAX_PAGES: usize = 10_000;
 
-/// A [`ChainSource`] over a `tosctld` `/poiw/settled-work` endpoint.
+/// A [`ChainSource`] over a `tosctld` `/aipow/settled-work` endpoint.
 #[derive(Debug, Clone)]
 pub struct TosctldSource<G> {
     getter: G,
@@ -145,7 +145,7 @@ impl<G: HttpGetJson> TosctldSource<G> {
         let mut events: Vec<WireEvent> = Vec::new();
         for _page in 0..MAX_PAGES {
             let url = format!(
-                "{}/poiw/settled-work?offset={}&limit={PAGE_LIMIT}",
+                "{}/aipow/settled-work?offset={}&limit={PAGE_LIMIT}",
                 self.base_url,
                 events.len()
             );
@@ -219,7 +219,7 @@ mod tests {
     use super::*;
 
     fn addr(byte: u8) -> String {
-        format!("0:{}", poiw_types::hex::encode(&[byte; 32]))
+        format!("0:{}", aipow_types::hex::encode(&[byte; 32]))
     }
 
     fn row(

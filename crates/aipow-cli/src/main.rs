@@ -1,8 +1,8 @@
-//! `poiw-scorer <fixture.json> <epoch> [options]`
-//! `poiw-scorer --tosctld <base-url> <epoch> [options]`
+//! `aipow-scorer <fixture.json> <epoch> [options]`
+//! `aipow-scorer --tosctld <base-url> <epoch> [options]`
 //!
 //! Runs the complete scoring pipeline over a JSON fixture or a live
-//! `tosctld` `/poiw/settled-work` endpoint (phase-A shadow scoring) and
+//! `tosctld` `/aipow/settled-work` endpoint (phase-A shadow scoring) and
 //! prints the epoch result as JSON: per-identity scores and payouts in
 //! both buckets (organic and challenge), the organic settled value, the
 //! demand-coupled pool, the challenge budget, and the committed score
@@ -27,38 +27,38 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
-use poiw_classifier::ClassifierParams;
-use poiw_commitment::{score_root, CommitmentEnvelope, FileSubmitter, ScoreEntry, Submitter};
-use poiw_indexer::{ChainSource, FixtureSource};
-use poiw_score::{allocate_epoch, epoch_pool, score_epoch, ChallengeBudgetParams, ScoreParams};
-use poiw_types::{hex, EpochId, IdentityId};
+use aipow_classifier::ClassifierParams;
+use aipow_commitment::{score_root, CommitmentEnvelope, FileSubmitter, ScoreEntry, Submitter};
+use aipow_indexer::{ChainSource, FixtureSource};
+use aipow_score::{allocate_epoch, epoch_pool, score_epoch, ChallengeBudgetParams, ScoreParams};
+use aipow_types::{hex, EpochId, IdentityId};
 
 const METHODOLOGY_VERSION: &str = "v0";
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(
-        "usage: poiw-scorer (<fixture.json> | --tosctld URL) <epoch> [--schedule-cap N] [--k-percent N] [--epoch-seconds N] [--bearer TOKEN] [--commit-out DIR] [--sign-seed-hex HEX]"
+        "usage: aipow-scorer (<fixture.json> | --tosctld URL) <epoch> [--schedule-cap N] [--k-percent N] [--epoch-seconds N] [--bearer TOKEN] [--commit-out DIR] [--sign-seed-hex HEX]"
     )]
     Usage,
     #[error("cannot read fixture: {0}")]
     Io(#[from] std::io::Error),
     #[error("fixture error: {0}")]
-    Fixture(#[from] poiw_indexer::FixtureError),
+    Fixture(#[from] aipow_indexer::FixtureError),
     #[error("tosctld error: {0}")]
-    Tosctld(#[from] poiw_indexer::tosctld::TosctldError<poiw_indexer::tosctld::UreqError>),
+    Tosctld(#[from] aipow_indexer::tosctld::TosctldError<aipow_indexer::tosctld::UreqError>),
     #[error("scoring error: {0}")]
-    Score(#[from] poiw_types::PoiwError),
+    Score(#[from] aipow_types::AipowError),
     #[error("commitment error: {0}")]
-    Commitment(#[from] poiw_commitment::CommitmentError),
+    Commitment(#[from] aipow_commitment::CommitmentError),
     #[error("envelope error: {0}")]
-    Envelope(#[from] poiw_commitment::EnvelopeError),
+    Envelope(#[from] aipow_commitment::EnvelopeError),
     #[error("output encoding error: {0}")]
     Encode(#[from] serde_json::Error),
     #[error("invalid argument value: {0}")]
     BadValue(String),
     #[error("attribution error: {0}")]
-    Attribution(#[from] poiw_types::AttributionError),
+    Attribution(#[from] aipow_types::AttributionError),
     #[error("--commit-out requires --sign-seed-hex")]
     MissingSeed,
 }
@@ -160,8 +160,8 @@ fn parse_args(raw: &[String]) -> Result<Args, CliError> {
 }
 
 fn payout_lines(
-    scores: &[poiw_score::IdentityScore],
-    payouts: &[poiw_score::IdentityPayout],
+    scores: &[aipow_score::IdentityScore],
+    payouts: &[aipow_score::IdentityPayout],
 ) -> Vec<PayoutLine> {
     scores
         .iter()
@@ -189,25 +189,25 @@ fn run() -> Result<(), CliError> {
             (source.epoch_data(EpochId(args.epoch))?, domains)
         }
         Source::Tosctld(base_url) => {
-            let getter = poiw_indexer::tosctld::UreqGetter::new(args.bearer.clone());
-            let source = poiw_indexer::tosctld::TosctldSource::new(
+            let getter = aipow_indexer::tosctld::UreqGetter::new(args.bearer.clone());
+            let source = aipow_indexer::tosctld::TosctldSource::new(
                 getter,
                 base_url.trim_end_matches('/'),
                 args.epoch_seconds,
             );
             (
                 source.epoch_data(EpochId(args.epoch))?,
-                poiw_types::DomainMap::default(),
+                aipow_types::DomainMap::default(),
             )
         }
     };
 
     let rate_card = match &args.rate_card {
         Some(path) => {
-            serde_json::from_str::<poiw_types::RateCard>(&std::fs::read_to_string(path)?)?
+            serde_json::from_str::<aipow_types::RateCard>(&std::fs::read_to_string(path)?)?
         }
-        None => poiw_types::RateCard {
-            version: poiw_types::vocabulary::RATE_CARD_VERSION.to_owned(),
+        None => aipow_types::RateCard {
+            version: aipow_types::vocabulary::RATE_CARD_VERSION.to_owned(),
             prices: Default::default(),
         },
     };
@@ -239,7 +239,7 @@ fn run() -> Result<(), CliError> {
         let entry = merged.entry(score.identity).or_insert(0);
         *entry = entry
             .checked_add(score.score)
-            .ok_or(poiw_types::PoiwError::Overflow)?;
+            .ok_or(aipow_types::AipowError::Overflow)?;
     }
     let entries: Vec<ScoreEntry> = merged
         .iter()
@@ -252,7 +252,7 @@ fn run() -> Result<(), CliError> {
     let total_score: u128 = merged
         .values()
         .try_fold(0u128, |acc, v| acc.checked_add(*v))
-        .ok_or(poiw_types::PoiwError::Overflow)?;
+        .ok_or(aipow_types::AipowError::Overflow)?;
 
     if let Some(directory) = &args.commit_out {
         let seed_hex = args.sign_seed_hex.as_ref().ok_or(CliError::MissingSeed)?;

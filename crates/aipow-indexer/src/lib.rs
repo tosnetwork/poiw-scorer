@@ -11,7 +11,7 @@
 //!   block-walking pattern of the node's contract indexer, with a
 //!   JSON-RPC adapter in [`rpc::JsonRpcChainRpc`];
 //! - [`tosctld::TosctldSource`] — consumes the phase-A
-//!   `GET /poiw/settled-work` data plane served by `tosctld`, applying
+//!   `GET /aipow/settled-work` data plane served by `tosctld`, applying
 //!   the published interim mapping.
 
 pub mod rpc;
@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use poiw_types::{EpochId, IdentityId, ReliabilityInputs, SettledWorkUnit};
+use aipow_types::{EpochId, IdentityId, ReliabilityInputs, SettledWorkUnit};
 
 /// A reorg-safe scan checkpoint: the last block fully ingested and its
 /// hash, so a source can detect a fork and rewind.
@@ -31,21 +31,21 @@ pub struct Checkpoint {
     pub block_hash: [u8; 32],
 }
 
-/// One settlement carrying a receipt-borne PoIW work attribution, not
+/// One settlement carrying a receipt-borne AIPoW work attribution, not
 /// yet valued: a rate card turns it into a [`SettledWorkUnit`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttributedSettlement {
     pub earner: IdentityId,
     pub payer: IdentityId,
-    pub settled_price: poiw_types::Nanotos,
-    pub attribution: poiw_types::WorkAttribution,
+    pub settled_price: aipow_types::Nanotos,
+    pub attribution: aipow_types::WorkAttribution,
 }
 
 /// Everything the scorer needs for one epoch.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct EpochData {
     pub units: Vec<SettledWorkUnit>,
-    /// Settlements whose receipts carry PoIW work attributions; valued
+    /// Settlements whose receipts carry AIPoW work attributions; valued
     /// against a rate card by [`EpochData::valued_units`]. Sources that
     /// serve attributions populate this instead of pre-valuing `units`.
     #[serde(default)]
@@ -65,8 +65,8 @@ impl EpochData {
     /// attribution is a hard error, never a silent skip.
     pub fn valued_units(
         &self,
-        rate_card: &poiw_types::RateCard,
-    ) -> Result<Vec<SettledWorkUnit>, poiw_types::AttributionError> {
+        rate_card: &aipow_types::RateCard,
+    ) -> Result<Vec<SettledWorkUnit>, aipow_types::AttributionError> {
         let mut units = self.units.clone();
         for settlement in &self.attributed {
             units.push(settlement.attribution.to_settled_work_unit(
@@ -103,7 +103,7 @@ pub enum FixtureError {
 pub struct Fixture {
     pub epochs: BTreeMap<u64, EpochData>,
     #[serde(default)]
-    pub domains: Vec<(IdentityId, poiw_types::DomainId)>,
+    pub domains: Vec<(IdentityId, aipow_types::DomainId)>,
 }
 
 /// A deterministic, in-memory [`ChainSource`] loaded from a JSON
@@ -130,8 +130,8 @@ impl FixtureSource {
     }
 
     /// The disclosed control-domain assignments carried by the fixture.
-    pub fn domain_map(&self) -> poiw_types::DomainMap {
-        poiw_types::DomainMap::from_pairs(self.fixture.domains.iter().cloned())
+    pub fn domain_map(&self) -> aipow_types::DomainMap {
+        aipow_types::DomainMap::from_pairs(self.fixture.domains.iter().cloned())
     }
 }
 
@@ -151,7 +151,7 @@ impl ChainSource for FixtureSource {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-    use poiw_types::{CapabilityClass, EvidenceLevel};
+    use aipow_types::{CapabilityClass, EvidenceLevel};
 
     use super::*;
 
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn attributed_settlements_value_under_a_rate_card() {
-        let attribution = poiw_types::WorkAttribution {
+        let attribution = aipow_types::WorkAttribution {
             capability_class: "text-generation".into(),
             unit: "kilo-output-tokens".into(),
             work_units: 4,
@@ -223,7 +223,7 @@ mod tests {
             }],
             reliability: vec![],
         };
-        let card = poiw_types::RateCard {
+        let card = aipow_types::RateCard {
             version: "v0".into(),
             prices: [("text-generation".to_owned(), 250u64)]
                 .into_iter()
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(units[0].settled_price, 1_000);
 
         // The same data under a card without the class is a hard error.
-        let empty_card = poiw_types::RateCard {
+        let empty_card = aipow_types::RateCard {
             version: "v0".into(),
             prices: Default::default(),
         };
