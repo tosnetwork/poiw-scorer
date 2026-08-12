@@ -4,6 +4,11 @@
 //! that drives demand-coupled emission — and computes the counterparty-
 //! concentration discount that decays wash-heavy earning toward zero.
 //!
+//! Grouping is by disclosed control domain, not bare identity: payers
+//! inside one control domain count as one counterparty, and work paid
+//! for from inside the earner's own domain is treated exactly like a
+//! `payer_related` flag.
+//!
 //! It is consensus-critical in effect: a wrong classification changes how
 //! much TOS the protocol creates. Changes here follow the same discipline
 //! as consensus code: versioned methodology, advance publication, and the
@@ -11,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use poiw_types::{Bps, IdentityId, PoiwError, SettledWorkUnit, BPS_DENOMINATOR};
+use poiw_types::{Bps, DomainKey, DomainMap, PoiwError, SettledWorkUnit, BPS_DENOMINATOR};
 
 /// Classifier parameters (methodology v0 draft values).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,26 +53,27 @@ impl ClassifierParams {
     }
 }
 
-/// A work unit is eligible for scoring unless its payer sits inside the
-/// earner's disclosed control domain.
-pub fn is_score_eligible(unit: &SettledWorkUnit) -> bool {
-    !unit.payer_related
+/// A work unit is eligible for scoring unless its payer is flagged as
+/// related or shares the earner's disclosed control domain.
+pub fn is_score_eligible(unit: &SettledWorkUnit, domains: &DomainMap) -> bool {
+    !unit.payer_related && !domains.same_domain(unit.identity, unit.payer)
 }
 
 /// A work unit contributes to organic settled value only if it is
 /// score-eligible and not a protocol-issued challenge task.
-pub fn is_organic(unit: &SettledWorkUnit) -> bool {
-    is_score_eligible(unit) && !unit.is_challenge_task
+pub fn is_organic(unit: &SettledWorkUnit, domains: &DomainMap) -> bool {
+    is_score_eligible(unit, domains) && !unit.is_challenge_task
 }
 
 /// Counterparty-concentration multiplier for one earner, from that
-/// earner's per-payer settled totals: 10_000 bps at or below the full
-/// threshold, decaying linearly to 0 at the zero threshold.
+/// earner's settled totals grouped by payer control domain: 10_000 bps
+/// at or below the full threshold, decaying linearly to 0 at the zero
+/// threshold.
 ///
 /// An earner with no settled value has nothing to discount and gets the
 /// full multiplier.
-pub fn counterparty_discount_bps(
-    per_payer_settled: &BTreeMap<IdentityId, u128>,
+pub fn counterparty_discount_bps<K: Ord>(
+    per_payer_settled: &BTreeMap<K, u128>,
     params: &ClassifierParams,
 ) -> Result<Bps, PoiwError> {
     params.validate()?;
@@ -113,18 +119,21 @@ pub fn counterparty_discount_bps(
 }
 
 /// Epoch-level organic settled value: for each earner, sum the settled
-/// prices of organic units, apply that earner's counterparty discount,
-/// and sum across earners. Deterministic by construction (`BTreeMap`
-/// ordering, integer arithmetic only).
+/// prices of organic units grouped by payer control domain, apply that
+/// earner's counterparty discount, and sum across earners.
+/// Deterministic by construction (`BTreeMap` ordering, integer
+/// arithmetic only).
 pub fn organic_settled_value(
     units: &[SettledWorkUnit],
+    domains: &DomainMap,
     params: &ClassifierParams,
 ) -> Result<u128, PoiwError> {
     params.validate()?;
-    let mut per_earner: BTreeMap<IdentityId, BTreeMap<IdentityId, u128>> = BTreeMap::new();
-    for unit in units.iter().filter(|u| is_organic(u)) {
+    let mut per_earner: BTreeMap<poiw_types::IdentityId, BTreeMap<DomainKey, u128>> =
+        BTreeMap::new();
+    for unit in units.iter().filter(|u| is_organic(u, domains)) {
         let payers = per_earner.entry(unit.identity).or_default();
-        let entry = payers.entry(unit.payer).or_insert(0);
+        let entry = payers.entry(domains.domain_of(unit.payer)).or_insert(0);
         *entry = entry
             .checked_add(u128::from(unit.settled_price))
             .ok_or(PoiwError::Overflow)?;
@@ -151,7 +160,7 @@ pub fn organic_settled_value(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-    use poiw_types::{CapabilityClass, EvidenceLevel};
+    use poiw_types::{CapabilityClass, DomainId, EvidenceLevel, IdentityId};
 
     use super::*;
 
@@ -170,7 +179,8 @@ mod tests {
 
     #[test]
     fn empty_input_yields_zero_organic_value() {
-        let value = organic_settled_value(&[], &ClassifierParams::default()).unwrap();
+        let value = organic_settled_value(&[], &DomainMap::default(), &ClassifierParams::default())
+            .unwrap();
         assert_eq!(value, 0);
     }
 
@@ -183,7 +193,9 @@ mod tests {
         ];
         // Only the first unit is organic; its single payer means 100%
         // concentration, so the discount multiplies it to zero.
-        let value = organic_settled_value(&units, &ClassifierParams::default()).unwrap();
+        let value =
+            organic_settled_value(&units, &DomainMap::default(), &ClassifierParams::default())
+                .unwrap();
         assert_eq!(value, 0);
     }
 
@@ -193,7 +205,9 @@ mod tests {
             unit(1, 2, 1_000, false, false),
             unit(1, 3, 1_000, false, false),
         ];
-        let value = organic_settled_value(&units, &ClassifierParams::default()).unwrap();
+        let value =
+            organic_settled_value(&units, &DomainMap::default(), &ClassifierParams::default())
+                .unwrap();
         assert_eq!(value, 2_000);
     }
 
@@ -205,8 +219,39 @@ mod tests {
             unit(1, 2, 3_000, false, false),
             unit(1, 3, 1_000, false, false),
         ];
-        let value = organic_settled_value(&units, &ClassifierParams::default()).unwrap();
+        let value =
+            organic_settled_value(&units, &DomainMap::default(), &ClassifierParams::default())
+                .unwrap();
         assert_eq!(value, 2_000);
+    }
+
+    #[test]
+    fn payers_in_one_domain_count_as_one_counterparty() {
+        // Two payers, but both disclosed under the same control domain:
+        // concentration is 100%, so the discount zeroes the value.
+        let domains = DomainMap::from_pairs([
+            (IdentityId([2; 32]), DomainId("acme".into())),
+            (IdentityId([3; 32]), DomainId("acme".into())),
+        ]);
+        let units = vec![
+            unit(1, 2, 1_000, false, false),
+            unit(1, 3, 1_000, false, false),
+        ];
+        let value = organic_settled_value(&units, &domains, &ClassifierParams::default()).unwrap();
+        assert_eq!(value, 0);
+    }
+
+    #[test]
+    fn same_domain_payer_is_treated_as_related() {
+        let domains = DomainMap::from_pairs([
+            (IdentityId([1; 32]), DomainId("acme".into())),
+            (IdentityId([2; 32]), DomainId("acme".into())),
+        ]);
+        let inside = unit(1, 2, 1_000, false, false);
+        assert!(!is_score_eligible(&inside, &domains));
+        assert!(!is_organic(&inside, &domains));
+        let outside = unit(1, 3, 1_000, false, false);
+        assert!(is_score_eligible(&outside, &domains));
     }
 
     #[test]
@@ -224,7 +269,7 @@ mod tests {
             top_payer_zero_bps: 8_000,
         };
         assert!(matches!(
-            organic_settled_value(&[], &params),
+            organic_settled_value(&[], &DomainMap::default(), &params),
             Err(PoiwError::InvalidParameter(_))
         ));
     }

@@ -1,12 +1,17 @@
 //! Chain-ingestion boundary.
 //!
 //! The scorer never talks to the chain directly; it consumes a
-//! [`ChainSource`]. The production source will walk finalized blocks over
-//! JSON-RPC with reorg-safe checkpoints, following the block-walking
-//! pattern of the node's contract indexer. This crate currently provides
-//! the trait, the checkpoint types, and [`FixtureSource`] — a complete,
-//! deterministic source backed by a JSON fixture, used for methodology
-//! test vectors, cross-implementation comparison, and the CLI.
+//! [`ChainSource`]. Two sources exist:
+//!
+//! - [`FixtureSource`] — a complete, deterministic source backed by a
+//!   JSON fixture, used for methodology test vectors,
+//!   cross-implementation comparison, and the CLI;
+//! - [`rpc::RpcChainSource`] — walks finalized blocks over a
+//!   [`rpc::ChainRpc`] with reorg-safe checkpoints, following the
+//!   block-walking pattern of the node's contract indexer, with a
+//!   JSON-RPC adapter in [`rpc::JsonRpcChainRpc`].
+
+pub mod rpc;
 
 use std::collections::BTreeMap;
 
@@ -54,10 +59,13 @@ pub enum FixtureError {
     Parse(String),
 }
 
-/// The JSON fixture format: epochs keyed by number.
+/// The JSON fixture format: epochs keyed by number, plus the disclosed
+/// control-domain assignments in force.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Fixture {
     pub epochs: BTreeMap<u64, EpochData>,
+    #[serde(default)]
+    pub domains: Vec<(IdentityId, poiw_types::DomainId)>,
 }
 
 /// A deterministic, in-memory [`ChainSource`] loaded from a JSON
@@ -81,6 +89,11 @@ impl FixtureSource {
 
     pub fn epochs(&self) -> impl Iterator<Item = EpochId> + '_ {
         self.fixture.epochs.keys().map(|k| EpochId(*k))
+    }
+
+    /// The disclosed control-domain assignments carried by the fixture.
+    pub fn domain_map(&self) -> poiw_types::DomainMap {
+        poiw_types::DomainMap::from_pairs(self.fixture.domains.iter().cloned())
     }
 }
 

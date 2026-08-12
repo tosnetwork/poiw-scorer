@@ -31,6 +31,84 @@ pub struct EpochId(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CapabilityClass(pub String);
 
+/// A disclosed control domain from the common-control registry.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DomainId(pub String);
+
+/// The effective control domain of an identity: either its disclosed
+/// domain, or a singleton domain of itself when nothing is disclosed.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DomainKey {
+    Declared(DomainId),
+    Solo(IdentityId),
+}
+
+/// Identity-to-domain assignments from the disclosed common-control
+/// registry. Identities without an entry form singleton domains.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DomainMap(pub std::collections::BTreeMap<IdentityId, DomainId>);
+
+impl DomainMap {
+    pub fn from_pairs(pairs: impl IntoIterator<Item = (IdentityId, DomainId)>) -> Self {
+        Self(pairs.into_iter().collect())
+    }
+
+    /// The effective domain of `identity`.
+    pub fn domain_of(&self, identity: IdentityId) -> DomainKey {
+        match self.0.get(&identity) {
+            Some(domain) => DomainKey::Declared(domain.clone()),
+            None => DomainKey::Solo(identity),
+        }
+    }
+
+    /// Whether two identities share a control domain.
+    pub fn same_domain(&self, a: IdentityId, b: IdentityId) -> bool {
+        if a == b {
+            return true;
+        }
+        self.domain_of(a) == self.domain_of(b)
+    }
+}
+
+/// Lowercase hex helpers used for JSON-facing encodings of fixed-size
+/// binary values (identities, hashes, keys, signatures).
+pub mod hex {
+    /// Encode bytes as lowercase hex.
+    pub fn encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+        for byte in bytes {
+            out.push_str(&format!("{byte:02x}"));
+        }
+        out
+    }
+
+    /// Decode lowercase or uppercase hex into bytes. Returns `None` on
+    /// any malformed input.
+    pub fn decode(text: &str) -> Option<Vec<u8>> {
+        if !text.len().is_multiple_of(2) {
+            return None;
+        }
+        let digits: Vec<u32> = text
+            .chars()
+            .map(|c| c.to_digit(16))
+            .collect::<Option<_>>()?;
+        let mut out = Vec::with_capacity(digits.len() / 2);
+        for pair in digits.chunks_exact(2) {
+            if let [high, low] = pair {
+                let value = high.checked_mul(16)?.checked_add(*low)?;
+                out.push(u8::try_from(value).ok()?);
+            }
+        }
+        Some(out)
+    }
+
+    /// Decode hex into an exact-size array.
+    pub fn decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
+        let bytes = decode(text)?;
+        bytes.try_into().ok()
+    }
+}
+
 /// The evidence ladder. The variant order is the trust order; `Declared`
 /// deliberately multiplies every score to zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -129,6 +207,30 @@ mod tests {
         for pair in ladder.windows(2) {
             assert!(pair[0].multiplier_percent() < pair[1].multiplier_percent());
         }
+    }
+
+    #[test]
+    fn domain_map_defaults_to_singleton_domains() {
+        let map = DomainMap::from_pairs([
+            (IdentityId([1; 32]), DomainId("acme".into())),
+            (IdentityId([2; 32]), DomainId("acme".into())),
+        ]);
+        assert!(map.same_domain(IdentityId([1; 32]), IdentityId([2; 32])));
+        assert!(!map.same_domain(IdentityId([1; 32]), IdentityId([3; 32])));
+        assert!(!map.same_domain(IdentityId([3; 32]), IdentityId([4; 32])));
+        assert!(map.same_domain(IdentityId([3; 32]), IdentityId([3; 32])));
+    }
+
+    #[test]
+    fn hex_round_trips_and_rejects_malformed() {
+        let bytes = [0u8, 15, 16, 255];
+        let text = hex::encode(&bytes);
+        assert_eq!(text, "000f10ff");
+        assert_eq!(hex::decode(&text).unwrap(), bytes.to_vec());
+        assert_eq!(hex::decode_array::<4>(&text).unwrap(), bytes);
+        assert!(hex::decode("abc").is_none());
+        assert!(hex::decode("zz").is_none());
+        assert!(hex::decode_array::<3>(&text).is_none());
     }
 
     #[test]

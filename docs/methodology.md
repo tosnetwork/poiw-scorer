@@ -31,6 +31,16 @@ evidence level, challenge-task flag, related-payer flag.
 Reliability inputs per identity over the trailing window (8 epochs):
 settlement-success, dispute-loss, and SLA-breach shares in bps.
 
+## 2.1 Control domains
+
+Identities carry disclosed control-domain assignments from the
+common-control registry; an identity without an assignment forms a
+singleton domain of itself. Domains, not bare identities, are the unit
+of every anti-collusion rule: a payer inside the earner's domain is
+treated as related, payers sharing one domain count as one counterparty
+in the concentration discount, and payout caps apply to a domain's
+combined take.
+
 ## 3. Work-unit score
 
 ```text
@@ -47,8 +57,9 @@ score = base × evidence_multiplier_percent / 100      (floor)
 | Attested | 170 |
 | Replicated | 200 |
 
-Units whose payer is inside the earner's disclosed control domain
-(`payer_related`) are excluded from scoring entirely.
+Units whose payer is flagged related or shares the earner's control
+domain are excluded from scoring entirely. Challenge-task units score
+normally but accumulate in a separate challenge bucket.
 
 ## 4. Identity score
 
@@ -69,7 +80,8 @@ score(identity) = raw × factor / 10,000               (floor)
 ## 6. Counterparty-concentration discount and organic value
 
 Per earner, over organic units only (not challenge tasks, not
-related-payer units), group settled prices by payer:
+related-payer or same-domain units), group settled prices by payer
+control domain:
 
 ```text
 top_share = top payer total × 10,000 / earner total   (bps, floor)
@@ -95,14 +107,36 @@ percent; `schedule_cap` calibrated toward the 4.5B TOS allocation over
 the target horizon. Un-emitted difference is never created and never
 rolled over.
 
-## 8. Payout allocation
+## 7.1 Challenge budget
 
 ```text
-cap_amount = pool × 500 / 10,000          (5% per control domain)
-payout(i)  = min( pool × score(i) / Σ scores, cap_amount )
+challenge_budget = max( min( pool × 3,000 / 10,000,
+                             organic_settled_value × 200 / 100 ),
+                        cold_start_floor )
+carve            = min( challenge_budget, pool × 3,000 / 10,000 )
+organic_budget   = pool − carve
 ```
 
-Pro-rata value above the cap is **not redistributed and not created**.
+Draft values: 30% pool-share cap, 2× organic bound, cold-start floor
+2,000 TOS per epoch, per-identity challenge cap 100 TOS per epoch. Only
+the within-pool-share portion is carved out of the organic pool; the
+floor's excess is additive emission, because the floor is deliberately
+the only emission not gated by demand and must not cannibalize organic
+payouts. In a zero-demand epoch, total emission is exactly the floor.
+
+## 8. Payout allocation
+
+Each bucket allocates independently:
+
+```text
+cap_amount = budget × 500 / 10,000        (5% per control domain)
+payout(i)  = budget × score(i) / Σ bucket scores        (floor)
+             then min(payout(i), per_identity_cap)      (challenge only)
+```
+
+If a control domain's combined payout exceeds `cap_amount`, every member
+payout is scaled by `cap_amount / domain_total` (floor). Value above a
+cap is **not redistributed and not created**.
 
 ## 9. Maturation
 
@@ -112,19 +146,41 @@ unmatured remainder is forfeited only on registry-bond fraud slashing.
 
 ## 10. Score root
 
+- Committed entries are the merged per-identity totals (organic plus
+  challenge score per identity).
 - Entries sorted by identity bytes; duplicate identities are an error.
 - Leaf: `sha256(0x00 ‖ identity(32) ‖ score as 16-byte big-endian)`.
 - Node: `sha256(0x01 ‖ left ‖ right)`; an odd node is promoted
   unchanged.
 - Empty epoch: `sha256(0x02 ‖ "poiw-empty-v0")`.
 
-## 11. Open items for v1
+## 10.1 Commitment envelope
 
-- Challenge-task sub-budget accounting (30% share cap, 2× organic cap,
-  cold-start floor) as a separate scored bucket.
-- Control-domain grouping (today: per identity; target: per disclosed
-  control domain).
+The signing payload for an epoch commitment is
+`sha256("poiw-commit-v0" ‖ epoch_be(8) ‖ version_len_be(4) ‖
+methodology_version_utf8 ‖ root(32) ‖ entry_count_be(8) ‖
+total_score_be(16) ‖ organic_settled_value_be(16))`, signed with
+ed25519. The same digest is used for shadow-scoring file publication and
+for on-chain submission once the distributor contract exists.
+
+## 11. Chain ingestion
+
+Finalized masterchain blocks are walked with a checkpoint (last scanned
+seqno plus root hash). Before advancing, the stored hash is re-verified
+against the live chain; on a mismatch the walker rewinds a fixed margin
+(5 blocks) and re-ingests. The margin bounds, but does not eliminate,
+stale data from an orphaned branch below the rewind point — the same
+documented semantics as the node's contract indexer. Units bucket into
+epochs by block unix time divided by the epoch length; an epoch is
+scoreable once a finalized block's time passes the epoch end.
+
+## 12. Open items for v1
+
 - Trailing-window definition for organic value (today: current epoch in
   the reference pipeline; target: published multi-epoch window).
 - Rate-card vocabulary and per-class unit definitions (owned by
   `tos-protocol`).
+- Reliability-input sourcing from chain data (part of the pending
+  node-side method surface).
+- The node-side `poiwGetSettledWork` JSON-RPC method and the distributor
+  contract submission path (owned by the `tos` repository).

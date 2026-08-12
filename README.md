@@ -52,18 +52,30 @@ The workspace additionally denies `arithmetic_side_effects` and
 
 ## Status and roadmap
 
-Implemented: the deterministic scoring pipeline (methodology v0 draft)
-end to end over fixture data, with unit tests per crate.
+Implemented (methodology v0 draft, end to end, unit-tested per crate):
 
-Not yet implemented (tracked, not stubbed):
+- the deterministic two-bucket scoring pipeline (organic + challenge)
+  with evidence multipliers, reliability factors, and control-domain
+  grouping;
+- demand-coupled epoch pool, triple-bounded challenge budget with the
+  additive cold-start floor, per-domain payout caps with proportional
+  scale-down, and per-identity challenge caps;
+- the reorg-safe block walker (`rpc::RpcChainSource`) over the
+  `rpc::ChainRpc` boundary, with the JSON-RPC adapter and HTTP
+  transport;
+- signed commitment envelopes (`poiw-commit-v0` digest, ed25519) with
+  file-based publication for the shadow-scoring phase.
 
-- RPC-backed `ChainSource` walking finalized blocks with reorg-safe
-  checkpoints (reference pattern: the node's contract indexer).
-- Challenge-task sub-budget accounting and the cold-start floor.
-- Control-domain grouping beyond single identities.
-- Commitment submission and challenge transactions (blocked on the PoIW
-  distributor contract in the `tos` repository).
+Remaining node-side integration (owned by the `tos` repository, tracked
+in the methodology's open items):
+
+- the `poiwGetSettledWork` JSON-RPC method serving settled work units
+  per block (the wire adapter here defines the consuming side);
+- wire-mapping verification of `getMasterchainInfo` / `lookupBlock` /
+  `getBlockHeader` against a localnet before phase A sign-off;
+- the PoIW distributor contract, at which point an on-chain `Submitter`
+  joins the file submitter.
 
 ## License
 
-To be decided before external contributions are accepted.
+GPL-3.0, aligned with the TOS node repository. See [LICENSE](LICENSE).
