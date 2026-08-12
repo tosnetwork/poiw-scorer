@@ -1,0 +1,13 @@
+[package]
+name = "poiw-classifier"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Organic/wash classification for PoIW emission inputs (consensus-critical discipline)"
+
+[dependencies]
+poiw-types = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

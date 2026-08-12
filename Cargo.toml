@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/poiw-types",
+    "crates/poiw-classifier",
+    "crates/poiw-score",
+    "crates/poiw-commitment",
+    "crates/poiw-indexer",
+    "crates/poiw-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/tosnetwork/poiw-scorer"
+
+[workspace.dependencies]
+poiw-types = { path = "crates/poiw-types" }
+poiw-classifier = { path = "crates/poiw-classifier" }
+poiw-score = { path = "crates/poiw-score" }
+poiw-commitment = { path = "crates/poiw-commitment" }
+poiw-indexer = { path = "crates/poiw-indexer" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+arithmetic_side_effects = "deny"
+indexing_slicing = "deny"
