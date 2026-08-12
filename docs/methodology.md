@@ -28,6 +28,25 @@ Actor receipt, carrying: earner identity, payer identity, capability
 class (published vocabulary), rate-card valuation, settled price,
 evidence level, challenge-task flag, related-payer flag.
 
+### 2.1 Receipt attributions and rate cards
+
+Receipts carrying a PoIW work attribution (the protocol's
+`PoiwWorkAttribution`; normative vocabulary: atos-spec's
+`POIW_WORK_ATTRIBUTION.md`) are valued under a protocol-published rate
+card before scoring:
+
+```text
+rate_card_value = work_units × price_per_unit(class)   (checked)
+default class:    rate_card_value = settled amount (implicit price 1)
+```
+
+The attribution's `rate_card_version` must match both the scorer's
+vocabulary revision and the supplied card; an unknown version, unknown
+class, unit mismatch, unpriced specific class, valuation overflow, or
+malformed identity commitment is a hard scoring error, never a repair
+or a silent skip. Settlements without an attribution continue under the
+interim mapping (settled amount as valuation, `default` class).
+
 Reliability inputs per identity over the trailing window (8 epochs):
 settlement-success, dispute-loss, and SLA-breach shares in bps.
 
@@ -178,8 +197,9 @@ scoreable once a finalized block's time passes the epoch end.
 
 - Trailing-window definition for organic value (today: current epoch in
   the reference pipeline; target: published multi-epoch window).
-- Rate-card vocabulary and per-class unit definitions (owned by
-  `tos-protocol`).
+- Governance publication of the priced rate card per class (the
+  vocabulary and units are normative in atos-spec's
+  `POIW_WORK_ATTRIBUTION.md`; the prices themselves remain draft).
 - Reliability-input sourcing from chain data (part of the pending
   node-side method surface).
 - The node-side `poiwGetSettledWork` JSON-RPC method and the distributor

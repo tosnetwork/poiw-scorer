@@ -16,6 +16,9 @@
 //!   --epoch-seconds <secs>     epoch length for tosctld bucketing
 //!                              (default 65536)
 //!   --bearer <token>           bearer token for the tosctld API
+//!   --rate-card <file.json>    rate card valuing attributed settlements
+//!                              (default: v0 card pricing only the
+//!                              `default` class)
 //!   --commit-out <directory>   write a signed commitment JSON here
 //!   --sign-seed-hex <64 hex>   ed25519 seed for the commitment signature
 
@@ -54,6 +57,8 @@ enum CliError {
     Encode(#[from] serde_json::Error),
     #[error("invalid argument value: {0}")]
     BadValue(String),
+    #[error("attribution error: {0}")]
+    Attribution(#[from] poiw_types::AttributionError),
     #[error("--commit-out requires --sign-seed-hex")]
     MissingSeed,
 }
@@ -92,6 +97,7 @@ struct Args {
     k_percent: u32,
     epoch_seconds: u64,
     bearer: Option<String>,
+    rate_card: Option<String>,
     commit_out: Option<String>,
     sign_seed_hex: Option<String>,
 }
@@ -115,6 +121,7 @@ fn parse_args(raw: &[String]) -> Result<Args, CliError> {
         k_percent: 300,                      // bootstrap-phase k = 3.0
         epoch_seconds: 65_536,
         bearer: None,
+        rate_card: None,
         commit_out: None,
         sign_seed_hex: None,
     };
@@ -142,6 +149,7 @@ fn parse_args(raw: &[String]) -> Result<Args, CliError> {
                 }
             }
             "--bearer" => args.bearer = Some(value.clone()),
+            "--rate-card" => args.rate_card = Some(value.clone()),
             "--commit-out" => args.commit_out = Some(value.clone()),
             "--sign-seed-hex" => args.sign_seed_hex = Some(value.clone()),
             _ => return Err(CliError::Usage),
@@ -194,8 +202,19 @@ fn run() -> Result<(), CliError> {
         }
     };
 
+    let rate_card = match &args.rate_card {
+        Some(path) => {
+            serde_json::from_str::<poiw_types::RateCard>(&std::fs::read_to_string(path)?)?
+        }
+        None => poiw_types::RateCard {
+            version: poiw_types::vocabulary::RATE_CARD_VERSION.to_owned(),
+            prices: Default::default(),
+        },
+    };
+    let units = data.valued_units(&rate_card)?;
+
     let scores = score_epoch(
-        &data.units,
+        &units,
         &data.reliability_map(),
         &domains,
         &ClassifierParams::default(),

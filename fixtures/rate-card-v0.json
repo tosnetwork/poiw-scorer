@@ -1,0 +1,7 @@
+{
+  "version": "v0",
+  "prices": {
+    "text-generation": 50000000,
+    "embedding": 5000000
+  }
+}

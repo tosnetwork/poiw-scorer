@@ -31,10 +31,25 @@ pub struct Checkpoint {
     pub block_hash: [u8; 32],
 }
 
+/// One settlement carrying a receipt-borne PoIW work attribution, not
+/// yet valued: a rate card turns it into a [`SettledWorkUnit`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttributedSettlement {
+    pub earner: IdentityId,
+    pub payer: IdentityId,
+    pub settled_price: poiw_types::Nanotos,
+    pub attribution: poiw_types::WorkAttribution,
+}
+
 /// Everything the scorer needs for one epoch.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct EpochData {
     pub units: Vec<SettledWorkUnit>,
+    /// Settlements whose receipts carry PoIW work attributions; valued
+    /// against a rate card by [`EpochData::valued_units`]. Sources that
+    /// serve attributions populate this instead of pre-valuing `units`.
+    #[serde(default)]
+    pub attributed: Vec<AttributedSettlement>,
     /// Trailing-window reliability inputs per identity, where history
     /// exists. Identities without history score at the neutral factor.
     pub reliability: Vec<(IdentityId, ReliabilityInputs)>,
@@ -43,6 +58,25 @@ pub struct EpochData {
 impl EpochData {
     pub fn reliability_map(&self) -> BTreeMap<IdentityId, ReliabilityInputs> {
         self.reliability.iter().copied().collect()
+    }
+
+    /// All scoreable units: the pre-valued `units` plus every attributed
+    /// settlement valued under `rate_card`. A malformed or unpriceable
+    /// attribution is a hard error, never a silent skip.
+    pub fn valued_units(
+        &self,
+        rate_card: &poiw_types::RateCard,
+    ) -> Result<Vec<SettledWorkUnit>, poiw_types::AttributionError> {
+        let mut units = self.units.clone();
+        for settlement in &self.attributed {
+            units.push(settlement.attribution.to_settled_work_unit(
+                settlement.earner,
+                settlement.payer,
+                settlement.settled_price,
+                rate_card,
+            )?);
+        }
+        Ok(units)
     }
 }
 
@@ -137,6 +171,7 @@ mod tests {
                     is_challenge_task: false,
                     payer_related: false,
                 }],
+                attributed: vec![],
                 reliability: vec![(
                     IdentityId([1; 32]),
                     ReliabilityInputs {
@@ -164,5 +199,53 @@ mod tests {
             FixtureSource::from_json("not json"),
             Err(FixtureError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn attributed_settlements_value_under_a_rate_card() {
+        let attribution = poiw_types::WorkAttribution {
+            capability_class: "text-generation".into(),
+            unit: "kilo-output-tokens".into(),
+            work_units: 4,
+            rate_card_version: "v0".into(),
+            evidence_level: EvidenceLevel::Observed,
+            earner_identity_commitment: None,
+            payer_identity_commitment: None,
+            challenge_task: false,
+        };
+        let data = EpochData {
+            units: vec![],
+            attributed: vec![AttributedSettlement {
+                earner: IdentityId([5; 32]),
+                payer: IdentityId([6; 32]),
+                settled_price: 1_000,
+                attribution: attribution.clone(),
+            }],
+            reliability: vec![],
+        };
+        let card = poiw_types::RateCard {
+            version: "v0".into(),
+            prices: [("text-generation".to_owned(), 250u64)]
+                .into_iter()
+                .collect(),
+        };
+        let units = data.valued_units(&card).unwrap();
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].rate_card_value, 1_000); // 4 x 250
+        assert_eq!(units[0].settled_price, 1_000);
+
+        // The same data under a card without the class is a hard error.
+        let empty_card = poiw_types::RateCard {
+            version: "v0".into(),
+            prices: Default::default(),
+        };
+        assert!(data.valued_units(&empty_card).is_err());
+
+        // Attributed rows survive a fixture JSON round trip.
+        let mut fixture = Fixture::default();
+        fixture.epochs.insert(3, data.clone());
+        let json = serde_json::to_string(&fixture).unwrap();
+        let source = FixtureSource::from_json(&json).unwrap();
+        assert_eq!(source.epoch_data(EpochId(3)).unwrap(), data);
     }
 }
